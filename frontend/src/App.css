@@ -2723,6 +2723,9 @@ main {
   height: 100% !important;
   min-height: 100%;
   filter: saturate(1.08) contrast(1.04);
+  backface-visibility: hidden;
+  contain: paint;
+  transform: translateZ(0);
 }
 
 .final-frame-background .frame-sequence {
@@ -2730,6 +2733,8 @@ main {
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 .final-photo-flow::after {
