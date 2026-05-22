@@ -111,6 +111,9 @@ function FinalFrameBackground({ triggerRef }) {
         playbackFps={36}
         fit="cover"
         scrollTriggerRef={triggerRef}
+        loopDirectional
+        loadRootMargin="4200px 0px"
+        maxConcurrentLoads={4}
         className="final-frame-canvas"
       />
     </div>
