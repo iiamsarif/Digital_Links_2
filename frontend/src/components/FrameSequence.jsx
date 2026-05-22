@@ -62,9 +62,11 @@ export default function FrameSequence({
   scrollEnd = "bottom top",
   scrollScrub = 0.45,
   loadRootMargin = "1400px 0px",
+  maxConcurrentLoads = 2,
   paused = false,
   startFrame = 0,
   fit = "cover",
+  loopDirectional = false,
   ariaLabel = "Animated product sequence",
 }) {
   const canvasRef = useRef(null);
@@ -84,6 +86,8 @@ export default function FrameSequence({
     targetSpeed: 0,
     direction: 1,
     lastInputTime: Number.NEGATIVE_INFINITY,
+    lastWheelTime: Number.NEGATIVE_INFINITY,
+    wheelDirection: 0,
     lastScrollY: 0,
     lastTickTime: performance.now(),
   });
@@ -150,8 +154,7 @@ export default function FrameSequence({
     ];
     let queueIndex = 0;
     let activeLoads = 0;
-    const maxConcurrentLoads = 2;
-
+    const loadLimit = Math.max(1, maxConcurrentLoads);
     const schedulePump = () => {
       const timer = window.setTimeout(pump, 36);
       timers.push(timer);
@@ -160,7 +163,7 @@ export default function FrameSequence({
     const pump = () => {
       if (cancelled) return;
 
-      while (activeLoads < maxConcurrentLoads && queueIndex < orderedFrames.length) {
+      while (activeLoads < loadLimit && queueIndex < orderedFrames.length) {
         const index = orderedFrames[queueIndex];
         queueIndex += 1;
         activeLoads += 1;
@@ -181,7 +184,7 @@ export default function FrameSequence({
       cancelled = true;
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [frames, shouldLoadFrames, startFrame]);
+  }, [frames, maxConcurrentLoads, shouldLoadFrames, startFrame]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -218,6 +221,11 @@ export default function FrameSequence({
       }
 
       if (direction !== 0) {
+        const wheelDirectionIsFresh = now - state.lastWheelTime < 260;
+        if (wheelDirectionIsFresh && state.wheelDirection && Math.sign(direction) !== state.wheelDirection) {
+          direction = state.wheelDirection;
+        }
+
         state.direction = direction;
         state.lastInputTime = now;
       }
@@ -259,8 +267,14 @@ export default function FrameSequence({
     const onWheel = (event) => {
       if (mode !== "directional" || Math.abs(event.deltaY) <= 0.1) return;
       const state = motionRef.current;
+      const now = performance.now();
       state.direction = Math.sign(event.deltaY);
-      state.lastInputTime = performance.now();
+      if (Math.sign(state.currentSpeed) !== state.direction) {
+        state.currentSpeed = 0;
+      }
+      state.wheelDirection = state.direction;
+      state.lastWheelTime = now;
+      state.lastInputTime = now;
     };
 
     if (mode === "directional") {
@@ -287,6 +301,20 @@ export default function FrameSequence({
         if (loadedRef.current[next]) return next;
       }
       return -1;
+    };
+
+    const wrapDirectionalProgress = (value) => {
+      const span = Math.max(1, frames.length - 1 - startFrame);
+      const cycle = span * 2;
+      const wrapped = ((value - startFrame) % cycle + cycle) % cycle;
+      return startFrame + wrapped;
+    };
+
+    const getLoopedDirectionalFrame = (value) => {
+      const maxFrame = frames.length - 1;
+      const span = Math.max(1, maxFrame - startFrame);
+      const offset = value - startFrame;
+      return offset <= span ? startFrame + offset : maxFrame - (offset - span);
     };
 
     const queueNextTick = () => {
@@ -333,20 +361,22 @@ export default function FrameSequence({
               if (Math.abs(state.currentSpeed) < 0.015) state.currentSpeed = 0;
             }
 
-            currentFrameRef.current = Math.min(
-              frames.length - 1,
-              Math.max(0, currentFrameRef.current + state.currentSpeed * deltaTime),
-            );
+            const nextFrame = currentFrameRef.current + state.currentSpeed * deltaTime;
+            if (loopDirectional) {
+              currentFrameRef.current = wrapDirectionalProgress(nextFrame);
+            } else {
+              currentFrameRef.current = Math.min(frames.length - 1, Math.max(0, nextFrame));
 
-            if (
-              (currentFrameRef.current <= 0 && state.currentSpeed < 0) ||
-              (currentFrameRef.current >= frames.length - 1 && state.currentSpeed > 0)
-            ) {
-              state.currentSpeed = 0;
+              if (
+                (currentFrameRef.current <= 0 && state.currentSpeed < 0) ||
+                (currentFrameRef.current >= frames.length - 1 && state.currentSpeed > 0)
+              ) {
+                state.currentSpeed = 0;
+              }
             }
           }
 
-          frame = Math.round(currentFrameRef.current);
+          frame = Math.round(loopDirectional ? getLoopedDirectionalFrame(currentFrameRef.current) : currentFrameRef.current);
         } else {
           const elapsed = Math.max(0, time - startTimeRef.current) / 1000;
           frame = Math.floor(elapsed * fps + startFrame) % frames.length;
@@ -376,7 +406,7 @@ export default function FrameSequence({
       cancelAnimationFrame(rafRef.current);
       window.clearTimeout(sleepTimerRef.current);
     };
-  }, [fit, fps, frames.length, mode, paused, playbackFps, speedSmoothing, startFrame, stopFriction]);
+  }, [fit, fps, frames.length, loopDirectional, mode, paused, playbackFps, speedSmoothing, startFrame, stopFriction]);
 
   return <canvas ref={canvasRef} className={`frame-sequence ${className}`} aria-label={ariaLabel} />;
 }
